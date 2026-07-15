@@ -26,14 +26,20 @@ export default function Navbar() {
   }, [location.pathname, location.search]); 
 
   const handleGoogleLogin = () => {
-   
+    // Dynamically reads the environment variable from Vercel deployment configs
     const backendUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
     window.location.href = `${backendUrl}/api/auth/google`;
   };
 
   const handleLogout = () => {
+    // 1. Clear Local Storage Tokens
     localStorage.removeItem('accessToken');
     setUser(null);
+    
+    // 2. Broadcast a global logout event to sync cross-component states instantly
+    window.dispatchEvent(new Event('authChange'));
+    
+    // 3. Redirect back to home
     navigate('/');
   };
 
@@ -65,7 +71,7 @@ export default function Navbar() {
               </Link>
               <button 
                 onClick={handleLogout} 
-                className="text-sm font-medium text-red-500 hover:text-red-400 transition"
+                className="text-sm font-medium text-red-500 hover:text-red-400 transition cursor-pointer bg-transparent border-none"
               >
                 Logout
               </button>
