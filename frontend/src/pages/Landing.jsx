@@ -1,13 +1,20 @@
-import { Link } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { Link, useLocation } from "react-router-dom";
 
 export default function Landing() {
-    // Check if the user is currently logged in
-    const token = localStorage.getItem('accessToken');
+    const [token, setToken] = useState(null);
+    const location = useLocation();
+
+    // Check login status whenever the user lands here or route changes (like logout)
+    useEffect(() => {
+        const activeToken = localStorage.getItem('accessToken');
+        setToken(activeToken);
+    }, [location.pathname]); 
 
     // Function to trigger backend authentication
     const handleGoogleLogin = () => {
-        // Pointing to the correct API route we created in the backend
-        window.location.href = `${import.meta.env.VITE_API_BASE_URL}/api/auth/google`;
+        const backendUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+        window.location.href = `${backendUrl}/api/auth/google`;
     };
 
     return (
