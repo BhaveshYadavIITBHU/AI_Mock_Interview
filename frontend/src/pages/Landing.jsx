@@ -7,7 +7,7 @@ export default function Landing() {
     // Function to trigger backend authentication
     const handleGoogleLogin = () => {
         // Pointing to the correct API route we created in the backend
-        window.location.href = "http://localhost:5000/api/auth/google";
+        window.location.href = `${import.meta.env.VITE_API_BASE_URL}/api/auth/google`;
     };
 
     return (
