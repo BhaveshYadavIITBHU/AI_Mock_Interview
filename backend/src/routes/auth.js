@@ -10,39 +10,46 @@ const prisma = new PrismaClient();
 router.get('/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
 
 // 2) The Callback (Where Google sends user after they log in)
-// Notice we made this async so we can query the database!
 router.get('/google/callback',
     passport.authenticate('google', { session: false }),
     async (req, res) => {
-        
-        // Generate short-lived Access Token
-        const accessToken = jwt.sign(
-            { userId: req.user.id },
-            process.env.JWT_SECRET,
-            { expiresIn: '15m' }
-        );
+        try {
+            // Generate short-lived Access Token
+            const accessToken = jwt.sign(
+                { userId: req.user.id },
+                process.env.JWT_SECRET,
+                { expiresIn: '15m' }
+            );
 
-        // Generate the long-lived Refresh Token
-        const refreshToken = jwt.sign(
-            { userId: req.user.id },
-            process.env.JWT_REFRESH_SECRET,
-            { expiresIn: '7d' }
-        );
-      
-        //  NEW USER CHECK 
-        // Fetch the user from the database to check when they were created
-        const user = await prisma.user.findUnique({
-            where: { id: req.user.id }
-        });
+            // Generate the long-lived Refresh Token
+            const refreshToken = jwt.sign(
+                { userId: req.user.id },
+                process.env.JWT_REFRESH_SECRET,
+                { expiresIn: '7d' }
+            );
+          
+            // NEW USER CHECK 
+            // Fetch the user from the database to check when they were created
+            const user = await prisma.user.findUnique({
+                where: { id: req.user.id }
+            });
 
-        // If the user was created in the last 30 seconds, they are brand new!
-        const isNewUser = user && (new Date() - new Date(user.createdAt)) < 30000;
+            // If the user was created in the last 30 seconds, they are brand new!
+            const isNewUser = user && (new Date() - new Date(user.createdAt)) < 30000;
 
-        // Send the tokens back to the client and redirect appropriately
-        if (isNewUser) {
-            res.redirect(`http://localhost:5173/dashboard?token=${accessToken}&isNew=true`);
-        } else {
-            res.redirect(`http://localhost:5173/dashboard?token=${accessToken}`);
+            // Dynamic Frontend URL read karega (Render environment variables se)
+            // Agar cloud par dynamic variable nahi mila toh automatically local server pe fallback karega
+            const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+
+            // Send the tokens back to the client and redirect appropriately
+            if (isNewUser) {
+                return res.redirect(`${frontendUrl}/dashboard?token=${accessToken}&isNew=true`);
+            } else {
+                return res.redirect(`${frontendUrl}/dashboard?token=${accessToken}`);
+            }
+        } catch (error) {
+            console.error("OAuth Callback Error:", error);
+            return res.status(500).send("Internal Server Error during authentication callback");
         }
     }
 );
@@ -52,7 +59,6 @@ router.get('/me', authenticateToken, async (req, res) => {
     try {
         const userProfile = await prisma.user.findUnique({
             where: { id: req.user.userId }
-           
         });
 
         if (!userProfile) {
