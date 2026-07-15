@@ -5,12 +5,10 @@ import api from '../api';
 export default function Navbar() {
   const [user, setUser] = useState(null);
   const navigate = useNavigate();
-  
-
   const location = useLocation(); 
 
   useEffect(() => {
-    // Check for a fresh token every time the route changes
+    // Check for a fresh token every time the route changes or URL parameters update
     const token = localStorage.getItem('accessToken');
 
     if (token) {
@@ -25,8 +23,13 @@ export default function Navbar() {
       // Ensure user state is cleared if no token is found
       setUser(null);
     }
-  // Re-run the effect every time the location path changes!
-  }, [location.pathname]); 
+  }, [location.pathname, location.search]); 
+
+  const handleGoogleLogin = () => {
+   
+    const backendUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+    window.location.href = `${backendUrl}/api/auth/google`;
+  };
 
   const handleLogout = () => {
     localStorage.removeItem('accessToken');
@@ -69,12 +72,12 @@ export default function Navbar() {
             </div>
           </>
         ) : (
-          <a 
-            href="http://localhost:5000/api/auth/google" 
-            className="text-sm font-bold text-blue-500 hover:text-blue-400 transition"
+          <button 
+            onClick={handleGoogleLogin} 
+            className="text-sm font-bold text-blue-500 hover:text-blue-400 transition cursor-pointer bg-transparent border-none"
           >
             Sign In
-          </a>
+          </button>
         )}
       </div>
     </nav>
