@@ -15,6 +15,7 @@ const allowedOrigins = [
     process.env.FRONTEND_URL,
     'http://localhost:5173',
     'http://localhost:3000',
+    'https://ai-mock-interview-blue-eight.vercel.app',
     'https://ai-mock-interview-xnfn.onrender.com'
 ].filter(Boolean);
 
