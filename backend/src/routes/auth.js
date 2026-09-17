@@ -45,7 +45,9 @@ router.get('/google/callback',
             // If the user was created in the last 30 seconds, they are brand new!
             const isNewUser = user && (new Date() - new Date(user.createdAt)) < 30000;
 
-            const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+            const frontendUrl = process.env.FRONTEND_URL || (process.env.NODE_ENV === 'production' 
+                ? 'https://ai-mock-interview-blue-eight.vercel.app' 
+                : 'http://localhost:5173');
 
             // Send the token back to the client and redirect appropriately
             if (isNewUser) {

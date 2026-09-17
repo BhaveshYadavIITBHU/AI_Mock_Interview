@@ -2,7 +2,9 @@ import axios from 'axios';
 
 // Custom Axios pointing to your backend
 const api = axios.create({
-    baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000',
+    baseURL: import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD 
+        ? 'https://ai-mock-interview-xnfn.onrender.com' 
+        : 'http://localhost:5000'),
     withCredentials: true // Automatically passes HTTP-only cookies like refreshToken
 });
 

@@ -27,7 +27,9 @@ export default function Navbar() {
 
   const handleGoogleLogin = () => {
     // Dynamically reads the environment variable from Vercel deployment configs
-    const backendUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+    const backendUrl = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD 
+        ? 'https://ai-mock-interview-xnfn.onrender.com' 
+        : 'http://localhost:5000');
     window.location.href = `${backendUrl}/api/auth/google`;
   };
 
