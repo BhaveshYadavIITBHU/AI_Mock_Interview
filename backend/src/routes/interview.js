@@ -17,6 +17,32 @@ const upload = multer({
     limits: { fileSize: 5 * 1024 * 1024 } 
 });
 
+// Helper for calling Gemini with resilient fallback across multiple models
+async function generateContentWithFallback(contents, generationConfig) {
+    const models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-flash-latest"];
+    let lastError = null;
+
+    for (const modelName of models) {
+        try {
+            const model = ai.getGenerativeModel({ model: modelName });
+            const result = await model.generateContent({
+                contents,
+                generationConfig
+            });
+            return result;
+        } catch (err) {
+            console.warn(`[Gemini Fallback] Model ${modelName} call failed:`, err.message);
+            lastError = err;
+            if (err.status === 404 || err.status === 429 || err.status === 503) {
+                continue;
+            }
+            continue;
+        }
+    }
+    throw lastError || new Error("All Gemini model attempts failed.");
+}
+
+
 // ---------------------------------------------------------
 // 1. GENERATE & SAVE INTERVIEW (POST /api/interview/generate)
 // ---------------------------------------------------------
@@ -54,9 +80,6 @@ router.post('/generate', authenticateToken, upload.single('resume'), async (req,
                 console.error("PDF Parsing error:", err);
             }
         }
-
-        // Using  model
-        const model = ai.getGenerativeModel({ model: "gemini-3-flash-preview" });
 
         const prompt = `
             You are an expert technical interviewer. Generate a technical interview assessment based on these criteria:
@@ -97,16 +120,20 @@ router.post('/generate', authenticateToken, upload.single('resume'), async (req,
             }
         };
 
-        const result = await model.generateContent({
-            contents: [{ role: 'user', parts: [{ text: prompt }] }],
-            generationConfig: {
+        const result = await generateContentWithFallback(
+            [{ role: 'user', parts: [{ text: prompt }] }],
+            {
                 responseMimeType: "application/json",
                 responseSchema: responseSchema,
                 temperature: 0.7
             }
-        });
+        );
 
-        const parsedQuestions = JSON.parse(result.response.text());
+        let rawResponseText = result.response.text().trim();
+        if (rawResponseText.startsWith("```")) {
+            rawResponseText = rawResponseText.replace(/^```json/, "").replace(/^```/, "").replace(/```$/, "").trim();
+        }
+        const parsedQuestions = JSON.parse(rawResponseText);
         const currentUserId = req.user.userId || req.user.id; 
 
         const newInterview = await prisma.interview.create({
@@ -157,33 +184,64 @@ router.get('/history', authenticateToken, async (req, res) => {
 });
 
 // ---------------------------------------------------------
-// 3. GET SPECIFIC SESSION
+// ---------------------------------------------------------
+// 3. GET SPECIFIC SESSION (Protected with IDOR Check)
 // ---------------------------------------------------------
 router.get('/session/:id', authenticateToken, async (req, res) => {
     try {
-        const interview = await prisma.interview.findUnique({
-            where: { id: req.params.id },
+        const currentUserId = req.user.userId || req.user.id;
+        const interview = await prisma.interview.findFirst({
+            where: { 
+                id: req.params.id,
+                userId: currentUserId 
+            },
             include: { questions: true } 
         });
+
+        if (!interview) {
+            return res.status(404).json({ error: "Interview session not found or unauthorized access." });
+        }
+
         res.json(interview);
     } catch (error) {
-        res.status(500).json({ error: "Failed to fetch details" });
+        console.error("Fetch Session Error:", error);
+        res.status(500).json({ error: "Failed to fetch session details." });
     }
 });
 
 // ---------------------------------------------------------
-// 4. SUBMIT AND GRADE INTERVIEW 
+// 4. SUBMIT AND GRADE INTERVIEW (Protected with IDOR & Duplicate Guard)
 // ---------------------------------------------------------
 router.post('/session/:id/submit', authenticateToken, async (req, res) => {
     try {
         const { answers } = req.body; 
         const interviewId = req.params.id;
+        const currentUserId = req.user.userId || req.user.id;
 
         if (!answers || !Array.isArray(answers)) {
             return res.status(400).json({ error: "No answers provided for grading." });
         }
-        
-        const model = ai.getGenerativeModel({ model: "gemini-3-flash-preview" });
+
+        // 1) Verify ownership and ensure the session exists
+        const interview = await prisma.interview.findFirst({
+            where: { 
+                id: interviewId,
+                userId: currentUserId 
+            },
+            include: { questions: true }
+        });
+
+        if (!interview) {
+            return res.status(404).json({ error: "Interview session not found or unauthorized access." });
+        }
+
+        // 2) Guard against duplicate submission and score manipulation
+        if (interview.score !== null) {
+            return res.status(400).json({ 
+                error: "This interview has already been submitted and graded.", 
+                score: interview.score 
+            });
+        }
 
         const prompt = `
             You are an expert technical interviewer and evaluator. 
@@ -220,18 +278,18 @@ router.post('/session/:id/submit', authenticateToken, async (req, res) => {
             required: ["overallScore", "evaluations"]
         };
 
-        const result = await model.generateContent({
-            contents: [{ role: 'user', parts: [{ text: prompt }] }],
-            generationConfig: {
+        const result = await generateContentWithFallback(
+            [{ role: 'user', parts: [{ text: prompt }] }],
+            {
                 responseMimeType: "application/json",
                 responseSchema: gradingSchema,
                 temperature: 0.2 
             }
-        });
+        );
 
         let rawText = result.response.text().trim();
         if (rawText.startsWith("```")) {
-            rawText = rawText.replace(/^```json/, "").replace(/^```/, "").trim();
+            rawText = rawText.replace(/^```json/, "").replace(/^```/, "").replace(/```$/, "").trim();
         }
         
         let evaluationData;
@@ -242,28 +300,32 @@ router.post('/session/:id/submit', authenticateToken, async (req, res) => {
             return res.status(500).json({ error: "AI grading output failed structural validation checks." });
         }
 
-        // 1) Save overall calculated score
+        // 3) Save overall calculated score
         await prisma.interview.update({
             where: { id: interviewId },
             data: { score: evaluationData.overallScore }
         });
 
-        // 2) Write user answers alongside AI ratings and textual feedback items back down to Question entries
-        await Promise.all(
-            answers.map(async (userAns) => {
-                const matchingEval = evaluationData.evaluations.find(
-                    (ev) => String(ev.questionId) === String(userAns.id)
-                );
+        // 4) Write user answers alongside AI ratings and feedback back to Question entries (scoped to this interview)
+        const validQuestionIds = new Set(interview.questions.map(q => q.id));
 
-                return prisma.question.update({
-                    where: { id: userAns.id },
-                    data: {
-                        answer: userAns.answer || "", 
-                        rating: matchingEval ? matchingEval.rating : 0, 
-                        aiFeedback: matchingEval ? matchingEval.feedback : "No feedback generated." 
-                    }
-                });
-            })
+        await Promise.all(
+            answers
+                .filter(userAns => validQuestionIds.has(userAns.id))
+                .map(async (userAns) => {
+                    const matchingEval = evaluationData.evaluations.find(
+                        (ev) => String(ev.questionId) === String(userAns.id)
+                    );
+
+                    return prisma.question.update({
+                        where: { id: userAns.id },
+                        data: {
+                            answer: userAns.answer || "", 
+                            rating: matchingEval ? matchingEval.rating : 0, 
+                            aiFeedback: matchingEval ? matchingEval.feedback : "No feedback generated." 
+                        }
+                    });
+                })
         );
 
         res.json({ score: evaluationData.overallScore });

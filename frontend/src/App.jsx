@@ -14,7 +14,7 @@ import Session from './pages/Session';
 
 function App() {
   return (
-    <div className="min-h-screen bg-gray-50 font-sans text-gray-900">
+    <div className="min-h-screen bg-gray-950 font-sans text-gray-100">
       <TopLoader/>
       <Navbar />
 

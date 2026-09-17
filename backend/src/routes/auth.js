@@ -27,7 +27,15 @@ router.get('/google/callback',
                 process.env.JWT_REFRESH_SECRET,
                 { expiresIn: '7d' }
             );
-          
+            // Set long-lived refresh token in an HTTP-only secure cookie
+            const isProduction = process.env.NODE_ENV === 'production';
+            res.cookie('refreshToken', refreshToken, {
+                httpOnly: true,
+                secure: isProduction,
+                sameSite: isProduction ? 'none' : 'lax',
+                maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+            });
+
             // NEW USER CHECK 
             // Fetch the user from the database to check when they were created
             const user = await prisma.user.findUnique({
@@ -37,11 +45,9 @@ router.get('/google/callback',
             // If the user was created in the last 30 seconds, they are brand new!
             const isNewUser = user && (new Date() - new Date(user.createdAt)) < 30000;
 
-            // Dynamic Frontend URL read karega (Render environment variables se)
-            // Agar cloud par dynamic variable nahi mila toh automatically local server pe fallback karega
             const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
 
-            // Send the tokens back to the client and redirect appropriately
+            // Send the token back to the client and redirect appropriately
             if (isNewUser) {
                 return res.redirect(`${frontendUrl}/dashboard?token=${accessToken}&isNew=true`);
             } else {
@@ -53,6 +59,45 @@ router.get('/google/callback',
         }
     }
 );
+
+// Refresh Access Token endpoint
+router.post('/refresh', (req, res) => {
+    try {
+        const token = req.cookies?.refreshToken || req.body?.refreshToken;
+        if (!token) {
+            return res.status(401).json({ error: "No refresh token provided." });
+        }
+
+        jwt.verify(token, process.env.JWT_REFRESH_SECRET, (err, decoded) => {
+            if (err) {
+                return res.status(403).json({ error: "Invalid or expired refresh token." });
+            }
+
+            const newAccessToken = jwt.sign(
+                { userId: decoded.userId },
+                process.env.JWT_SECRET,
+                { expiresIn: '15m' }
+            );
+
+            return res.json({ accessToken: newAccessToken });
+        });
+    } catch (error) {
+        console.error("Refresh Token Error:", error);
+        return res.status(500).json({ error: "Internal error refreshing token." });
+    }
+});
+
+// Logout endpoint
+router.post('/logout', (req, res) => {
+    const isProduction = process.env.NODE_ENV === 'production';
+    res.clearCookie('refreshToken', {
+        httpOnly: true,
+        secure: isProduction,
+        sameSite: isProduction ? 'none' : 'lax'
+    });
+    return res.json({ message: "Logged out successfully" });
+});
+
 
 // 3) Get Current User Profile (Protected Route)
 router.get('/me', authenticateToken, async (req, res) => {

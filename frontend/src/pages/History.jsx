@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import api from '../api'; // custom axios instance with the JWT token
 
 export default function History() {
@@ -86,7 +86,15 @@ export default function History() {
                 {/* Expanded Feedback Section */}
                 {expandedId === interview.id && (
                   <div className="border-t border-gray-800 bg-gray-950 p-6 space-y-6">
-                    <h3 className="text-lg font-semibold border-b border-gray-800 pb-2 mb-4">Detailed AI Feedback</h3>
+                    <div className="flex justify-between items-center border-b border-gray-800 pb-3 mb-4">
+                      <h3 className="text-lg font-semibold text-white">Detailed AI Feedback</h3>
+                      <Link
+                        to={`/result/${interview.id}`}
+                        className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg transition shadow-md shadow-blue-900/20"
+                      >
+                        View Interactive Report & Dial →
+                      </Link>
+                    </div>
                     
                     {interview.questions.map((q, index) => (
                       <div key={q.id} className="bg-gray-900 rounded-lg p-5 border border-gray-800">

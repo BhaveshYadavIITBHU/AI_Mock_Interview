@@ -31,15 +31,22 @@ export default function Navbar() {
     window.location.href = `${backendUrl}/api/auth/google`;
   };
 
-  const handleLogout = () => {
-    // 1. Clear Local Storage Tokens
+  const handleLogout = async () => {
+    // 1. Inform the backend to clear the HTTP-only refresh token cookie
+    try {
+      await api.post('/api/auth/logout');
+    } catch (err) {
+      console.warn("Logout request failed:", err);
+    }
+
+    // 2. Clear Local Storage Tokens
     localStorage.removeItem('accessToken');
     setUser(null);
     
-    // 2. Broadcast a global logout event to sync cross-component states instantly
+    // 3. Broadcast a global logout event to sync cross-component states instantly
     window.dispatchEvent(new Event('authChange'));
     
-    // 3. Redirect back to home
+    // 4. Redirect back to home
     navigate('/');
   };
 
